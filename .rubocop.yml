@@ -1,0 +1,86 @@
+AllCops:
+  TargetRubyVersion: 3.2
+  NewCops: enable
+  Exclude:
+    - 'vendor/**/*'
+    - 'node_modules/**/*'
+    - 'tmp/**/*'
+    - 'log/**/*'
+    - 'db/schema.rb'
+
+plugins:
+  - rubocop-rspec
+
+# Style and formatting
+Style/Documentation:
+  Enabled: false
+
+Style/FrozenStringLiteralComment:
+  Enabled: true
+
+Layout/LineLength:
+  Max: 120
+  AllowedPatterns: ['\A#']
+
+Metrics/MethodLength:
+  Max: 25
+  Exclude:
+    - 'spec/**/*'
+
+Metrics/ClassLength:
+  Max: 200
+  Exclude:
+    - 'spec/**/*'
+
+Metrics/BlockLength:
+  Max: 25
+  Exclude:
+    - 'spec/**/*'
+    - 'config/**/*'
+
+Metrics/AbcSize:
+  Max: 20
+  Exclude:
+    - 'spec/**/*'
+
+# Naming conventions
+Naming/VariableNumber:
+  Enabled: false
+
+# Security
+Security/Open:
+  Enabled: true
+
+# Performance cops moved to rubocop-performance gem - remove if not using that gem
+
+# Lint
+Lint/AmbiguousOperator:
+  Enabled: true
+
+Lint/UnusedBlockArgument:
+  Enabled: true
+
+Lint/UnusedMethodArgument:
+  Enabled: true
+
+# RSpec specific
+RSpec/ExampleLength:
+  Max: 20
+
+RSpec/MultipleExpectations:
+  Max: 5
+
+RSpec/NestedGroups:
+  Max: 4
+
+RSpec/DescribeClass:
+  Exclude:
+    - 'spec/security_middleware_spec.rb'
+    - 'spec/claude_api_endpoints_spec.rb'
+
+# Disable cops that conflict with common Sinatra patterns
+Style/GlobalVars:
+  Enabled: false
+
+Style/ClassVars:
+  Enabled: false

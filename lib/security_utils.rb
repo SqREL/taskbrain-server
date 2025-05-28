@@ -5,7 +5,13 @@ require 'base64'
 
 class SecurityUtils
   def self.encryption_key
-    @encryption_key ||= ENV['ENCRYPTION_KEY'] || generate_key
+    @encryption_key ||= begin
+      if ENV['ENCRYPTION_KEY']
+        Base64.strict_decode64(ENV['ENCRYPTION_KEY'])
+      else
+        generate_key
+      end
+    end
   end
 
   def self.generate_key
@@ -16,7 +22,7 @@ class SecurityUtils
   end
 
   def self.encrypt(data)
-    return data if data.nil? || data.empty?
+    return data if data.nil? || (data.respond_to?(:empty?) && data.empty?)
 
     cipher = OpenSSL::Cipher.new('AES-256-GCM')
     cipher.encrypt
@@ -36,11 +42,11 @@ class SecurityUtils
 
     begin
       combined = Base64.strict_decode64(encrypted_data)
-      
+
       # Extract components
       iv = combined[0, 12]
       auth_tag = combined[12, 16]
-      encrypted = combined[28..-1]
+      encrypted = combined[28..]
 
       cipher = OpenSSL::Cipher.new('AES-256-GCM')
       cipher.decrypt
@@ -68,12 +74,12 @@ class SecurityUtils
   end
 
   def self.hash_api_key(api_key)
-    OpenSSL::PBKDF2.pbkdf2_hmac(
+    OpenSSL::PKCS5.pbkdf2_hmac(
       api_key,
       ENV['API_KEY_SALT'] || 'taskbrain_salt',
-      10000,
+      10_000,
       32,
-      OpenSSL::Digest::SHA256.new
+      OpenSSL::Digest.new('SHA256')
     )
   end
 

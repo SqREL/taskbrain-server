@@ -35,7 +35,7 @@ class TodoistIntegration
   end
 
   def setup_webhook(access_token)
-    webhook_url = "#{ENV['BASE_URL']}/webhooks/todoist"
+    webhook_url = "#{ENV.fetch('BASE_URL', nil)}/webhooks/todoist"
 
     response = self.class.post('/rest/v2/webhooks', {
                                  headers: {

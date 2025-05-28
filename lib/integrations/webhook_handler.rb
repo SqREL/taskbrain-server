@@ -15,7 +15,7 @@ class WebhookHandler
   def verify_todoist_signature(payload, signature)
     return false unless signature
 
-    secret = ENV['TODOIST_WEBHOOK_SECRET'] || ENV['WEBHOOK_SECRET']
+    secret = ENV['TODOIST_WEBHOOK_SECRET'] || ENV.fetch('WEBHOOK_SECRET', nil)
     expected_signature = OpenSSL::HMAC.hexdigest('SHA256', secret, payload)
     Rack::Utils.secure_compare(signature, "sha256=#{expected_signature}")
   end
@@ -23,7 +23,7 @@ class WebhookHandler
   def verify_linear_signature(payload, signature)
     return false unless signature
 
-    secret = ENV['LINEAR_WEBHOOK_SECRET']
+    secret = ENV.fetch('LINEAR_WEBHOOK_SECRET', nil)
     return false unless secret
 
     expected_signature = OpenSSL::HMAC.hexdigest('SHA256', secret, payload)
@@ -228,7 +228,7 @@ class WebhookHandler
   end
 
   def notify_claude_of_change(event_type, event_data)
-    claude_webhook_url = ENV['CLAUDE_WEBHOOK_URL']
+    claude_webhook_url = ENV.fetch('CLAUDE_WEBHOOK_URL', nil)
     return unless claude_webhook_url
 
     # Prepare notification payload
@@ -270,7 +270,7 @@ class WebhookHandler
     # or if it's in a specific team/project we're tracking
 
     assignee_email = issue_data.dig('assignee', 'email')
-    user_email = ENV['USER_EMAIL'] # Set this in environment
+    user_email = ENV.fetch('USER_EMAIL', nil) # Set this in environment
 
     return true if assignee_email == user_email
 

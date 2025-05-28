@@ -19,7 +19,7 @@ class GoogleCalendarIntegration
                                    client_secret: @client_secret,
                                    code: code,
                                    grant_type: 'authorization_code',
-                                   redirect_uri: "#{ENV['BASE_URL']}/auth/google/callback"
+                                   redirect_uri: "#{ENV.fetch('BASE_URL', nil)}/auth/google/callback"
                                  }
                                })
 

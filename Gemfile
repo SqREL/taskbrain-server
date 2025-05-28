@@ -17,6 +17,7 @@ gem 'sidekiq', '~> 7.0'
 gem 'sidekiq-cron', '~> 1.10'
 gem 'sinatra', '~> 3.0'
 gem 'sinatra-contrib', '~> 3.0'
+gem 'sinatra-cors', '~> 1.1'
 gem 'whenever', '~> 1.0'
 
 group :development do
@@ -25,5 +26,15 @@ group :development do
 end
 
 group :test do
-  gem 'rubocop'
+  gem 'database_cleaner-sequel', '~> 2.0'
+  gem 'factory_bot', '~> 6.2'
+  gem 'rack-test', '~> 2.1'
+  gem 'rspec', '~> 3.12'
+  gem 'simplecov', '~> 0.22'
+  gem 'webmock', '~> 3.18'
+end
+
+group :development, :test do
+  gem 'rubocop', '~> 1.50'
+  gem 'rubocop-rspec', '~> 3.6'
 end

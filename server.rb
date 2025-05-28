@@ -9,7 +9,7 @@ require 'sequel'
 require 'httparty'
 require 'json'
 require 'logger'
-require 'dotenv/load'
+require 'dotenv/load' unless ENV['RACK_ENV'] == 'test'
 require 'jwt'
 require 'sidekiq'
 require 'chronic'
@@ -20,7 +20,7 @@ require_relative 'lib/integrations/google_calendar'
 require_relative 'lib/integrations/linear'
 # require_relative 'lib/integrations/evernote' # Not implemented yet
 require_relative 'lib/task_intelligence'
-require_relative 'lib/webhook_handler'
+require_relative 'lib/integrations/webhook_handler'
 require_relative 'lib/security_utils'
 require_relative 'lib/validation_utils'
 
@@ -28,44 +28,61 @@ set :port, 3000
 set :bind, '0.0.0.0'
 set :logging, true
 
-register Sinatra::Cors
+# CORS configuration
+set :allow_origin, ENV['ALLOWED_ORIGINS']&.split(',')&.first || 'https://claude.ai'
+set :allow_methods, 'GET,HEAD,POST,PUT,DELETE,OPTIONS'
+set :allow_headers, 'Authorization,Content-Type,Accept,X-Claude-API-Key'
 
-allow do
-  origins ENV['ALLOWED_ORIGINS']&.split(',') || ['https://claude.ai', 'http://localhost:3000']
-  resource '*', headers: :any, methods: %i[get post put delete options]
+before do
+  headers['Access-Control-Allow-Origin'] = settings.allow_origin
+  headers['Access-Control-Allow-Methods'] = settings.allow_methods
+  headers['Access-Control-Allow-Headers'] = settings.allow_headers if request.options?
 end
 
-# Initialize services
-$redis = Redis.new(url: ENV['REDIS_URL'] || 'redis://localhost:6379')
-$db = Sequel.connect(ENV['DATABASE_URL'] || 'postgres://postgres:password@localhost/taskmanager')
-$logger = Logger.new('logs/server.log')
+options '*' do
+  200
+end
 
-# Initialize managers
-$task_manager = TaskManager.new($db, $redis, $logger)
-$todoist = TodoistIntegration.new(ENV['TODOIST_CLIENT_ID'], ENV['TODOIST_CLIENT_SECRET'])
-$calendar = GoogleCalendarIntegration.new(ENV['GOOGLE_CLIENT_ID'], ENV['GOOGLE_CLIENT_SECRET'])
-$linear = LinearIntegration.new(ENV['LINEAR_API_KEY'])
-# $evernote = EvernoteIntegration.new(ENV['EVERNOTE_DEV_TOKEN']) # Not implemented yet
-$intelligence = TaskIntelligence.new($task_manager, $calendar, $linear)
-$webhook_handler = WebhookHandler.new($task_manager, $intelligence)
+# Initialize services (skip in test environment)
+if ENV['RACK_ENV'] != 'test'
+  $redis = Redis.new(url: ENV['REDIS_URL'] || 'redis://localhost:6379')
+  $db = Sequel.connect(ENV['DATABASE_URL'] || 'postgres://postgres:password@localhost/taskmanager')
+  $logger = Logger.new('logs/server.log')
+
+  # Initialize managers
+  $task_manager = TaskManager.new($db, $redis, $logger)
+  $todoist = TodoistIntegration.new(ENV.fetch('TODOIST_CLIENT_ID', nil), ENV.fetch('TODOIST_CLIENT_SECRET', nil))
+  $calendar = GoogleCalendarIntegration.new(ENV.fetch('GOOGLE_CLIENT_ID', nil), ENV.fetch('GOOGLE_CLIENT_SECRET', nil))
+  $linear = LinearIntegration.new(ENV.fetch('LINEAR_API_KEY', nil))
+  # $evernote = EvernoteIntegration.new(ENV['EVERNOTE_DEV_TOKEN']) # Not implemented yet
+  $intelligence = TaskIntelligence.new($task_manager, $calendar, $linear)
+  $webhook_handler = WebhookHandler.new($task_manager, $intelligence)
+end
 
 # Authentication middleware
 def authenticate_request
   api_key = request.env['HTTP_AUTHORIZATION']&.sub(/^Bearer /, '')
-  api_key && Rack::Utils.secure_compare(api_key, ENV['API_KEY'])
+  env_key = ENV.fetch('API_KEY', nil)
+  
+  api_key && env_key && Rack::Utils.secure_compare(api_key, env_key)
 end
 
 def authenticate_claude_request
   claude_key = request.env['HTTP_X_CLAUDE_API_KEY']
-  claude_key && Rack::Utils.secure_compare(claude_key, ENV['CLAUDE_API_KEY'])
+  claude_key && Rack::Utils.secure_compare(claude_key, ENV.fetch('CLAUDE_API_KEY', nil))
+end
+
+before do
+  content_type :json
 end
 
 # Protect API endpoints
 before '/api/*' do
   # Skip auth for health check
   pass if request.path_info == '/api/health'
-  
+
   unless authenticate_request
+    $logger&.warn "401 Unauthorized access attempt: #{request.path_info} from #{request.env['REMOTE_ADDR']}"
     halt 401, { error: 'Unauthorized - Invalid API key' }.to_json
   end
 end
@@ -73,13 +90,9 @@ end
 # Enhanced protection for Claude endpoints
 before '/api/claude/*' do
   unless authenticate_claude_request
+    $logger&.warn "401 Unauthorized Claude API access attempt: #{request.path_info} from #{request.env['REMOTE_ADDR']}"
     halt 401, { error: 'Unauthorized - Invalid Claude API key' }.to_json
   end
-end
-
-before do
-  content_type :json
-  headers 'Access-Control-Allow-Origin' => ENV['ALLOWED_ORIGINS']&.split(',')&.first || 'https://claude.ai'
 end
 
 # Health check
@@ -115,7 +128,7 @@ post '/auth/google' do
 
   if result[:success]
     SecurityUtils.secure_store_token($redis, 'google_token', result[:access_token])
-    SecurityUtils.secure_store_token($redis, 'google_refresh_token', result[:refresh_token], 86400) # 24 hours
+    SecurityUtils.secure_store_token($redis, 'google_refresh_token', result[:refresh_token], 86_400) # 24 hours
     { success: true }.to_json
   else
     status 400
@@ -126,10 +139,9 @@ end
 # Task management endpoints
 get '/api/tasks' do
   filter_errors = ValidationUtils.validate_filters(params)
-  
+
   if filter_errors.any?
-    status 400
-    return { errors: filter_errors }.to_json
+    halt 400, { errors: filter_errors }.to_json
   end
 
   filters = {
@@ -155,10 +167,9 @@ end
 
 post '/api/tasks' do
   validation_result = ValidationUtils.validate_and_parse_json(request.body.read)
-  
+
   if validation_result[:errors]
-    status 400
-    return { errors: validation_result[:errors] }.to_json
+    halt 400, { errors: validation_result[:errors] }.to_json
   end
 
   # Create task with intelligence
@@ -173,10 +184,9 @@ end
 
 put '/api/tasks/:id' do
   validation_result = ValidationUtils.validate_and_parse_json(request.body.read)
-  
+
   if validation_result[:errors]
-    status 400
-    return { errors: validation_result[:errors] }.to_json
+    halt 400, { errors: validation_result[:errors] }.to_json
   end
 
   task = $task_manager.update_task(params[:id], validation_result[:data])
@@ -314,9 +324,10 @@ end
 # Enhanced task creation with AI analysis
 post '/api/claude/smart_create' do
   validation_result = ValidationUtils.validate_and_parse_json(request.body.read)
-  
+
   if validation_result[:errors]
     status 400
+    content_type :json
     return { errors: validation_result[:errors] }.to_json
   end
 
@@ -324,7 +335,7 @@ post '/api/claude/smart_create' do
   task = $task_manager.create_task(validation_result[:data])
   intelligence = $intelligence.analyze_new_task(task)
   calendar_context = get_calendar_availability_context
-  
+
   {
     task: task,
     intelligence: intelligence,
@@ -336,33 +347,37 @@ end
 
 # Bulk task operations for Claude
 post '/api/claude/bulk_create' do
-  validation_result = ValidationUtils.validate_and_parse_json(request.body.read)
+  body = request.body.read
   
-  if validation_result[:errors]
-    status 400
-    return { errors: validation_result[:errors] }.to_json
+  if body.nil? || body.strip.empty?
+    halt 400, { errors: ['Request body is required'] }.to_json
   end
 
-  tasks_data = validation_result[:data]['tasks']
+  begin
+    data = JSON.parse(body)
+  rescue JSON::ParserError => e
+    halt 400, { errors: ["Invalid JSON: #{e.message}"] }.to_json
+  end
+
+  tasks_data = data['tasks']
   unless tasks_data.is_a?(Array)
-    status 400
-    return { errors: ['Tasks must be an array'] }.to_json
+    halt 400, { errors: ['Tasks must be an array'] }.to_json
   end
 
   results = []
   tasks_data.each_with_index do |task_data, index|
     task_validation = ValidationUtils.validate_task_data(task_data)
-    
+
     if task_validation.any?
       results << { index: index, errors: task_validation }
     else
       task = $task_manager.create_task(ValidationUtils.sanitize_task_data(task_data))
       suggestions = $intelligence.analyze_new_task(task)
-      results << { 
-        index: index, 
-        task: task, 
+      results << {
+        index: index,
+        task: task,
         suggestions: suggestions,
-        success: true 
+        success: true
       }
     end
   end
@@ -373,23 +388,22 @@ end
 # Context-aware daily schedule for specific date
 get '/api/claude/context/:date' do
   date = params[:date]
-  
+
   begin
     parsed_date = Date.parse(date)
   rescue ArgumentError
-    status 400
-    return { error: 'Invalid date format' }.to_json
+    halt 400, { error: 'Invalid date format' }.to_json
   end
 
   {
     date: date,
     tasks: {
-      due_today: $task_manager.get_tasks.select { |t| 
-        t[:due_date] && Date.parse(t[:due_date].to_s) == parsed_date 
-      },
-      available_for_scheduling: $task_manager.get_tasks(status: 'active').select { |t|
+      due_today: $task_manager.get_tasks.select do |t|
+        t[:due_date] && Date.parse(t[:due_date].to_s) == parsed_date
+      end,
+      available_for_scheduling: $task_manager.get_tasks(status: 'active').select do |t|
         t[:due_date].nil? || Date.parse(t[:due_date].to_s) >= parsed_date
-      }
+      end
     },
     calendar_events: $calendar.get_events_for_date(date),
     schedule_suggestions: $intelligence.suggest_daily_schedule(date),
@@ -400,24 +414,28 @@ end
 
 # Intelligent batch rescheduling
 post '/api/claude/reschedule_batch' do
-  validation_result = ValidationUtils.validate_and_parse_json(request.body.read)
+  body = request.body.read
   
-  if validation_result[:errors]
-    status 400
-    return { errors: validation_result[:errors] }.to_json
+  if body.nil? || body.strip.empty?
+    halt 400, { errors: ['Request body is required'] }.to_json
   end
 
-  reschedule_requests = validation_result[:data]['reschedule_requests']
+  begin
+    data = JSON.parse(body)
+  rescue JSON::ParserError => e
+    halt 400, { errors: ["Invalid JSON: #{e.message}"] }.to_json
+  end
+
+  reschedule_requests = data['reschedule_requests']
   unless reschedule_requests.is_a?(Array)
-    status 400
-    return { errors: ['Reschedule requests must be an array'] }.to_json
+    halt 400, { errors: ['Reschedule requests must be an array'] }.to_json
   end
 
   results = []
   reschedule_requests.each do |request|
     task_id = request['task_id']
     new_date = request['new_date']
-    
+
     result = $intelligence.smart_reschedule(task_id, new_date)
     results << result.merge(task_id: task_id)
   end
@@ -478,7 +496,7 @@ end
 def analyze_current_capacity
   active_tasks = $task_manager.get_tasks(status: 'active')
   total_estimated_time = active_tasks.sum { |t| t[:estimated_duration] || 60 }
-  
+
   {
     total_active_tasks: active_tasks.length,
     estimated_total_hours: (total_estimated_time / 60.0).round(1),
@@ -508,7 +526,7 @@ end
 def get_calendar_availability_context
   today = Date.today.to_s
   events = $calendar.get_events_for_date(today)
-  
+
   {
     total_events: events.length,
     busy_hours: events.sum { |e| calculate_event_duration(e) },
@@ -520,23 +538,23 @@ end
 def suggest_optimal_time_slots(task, calendar_context)
   duration = task[:estimated_duration] || 60
   energy_level = task[:energy_level] || 3
-  
+
   available_slots = calendar_context[:available_slots] || []
-  
+
   # Filter slots by energy level and time of day
   optimal_slots = available_slots.select do |slot|
     slot_hour = Time.parse(slot[:start].to_s).hour
-    
+
     case energy_level
     when 4..5 # High energy
       (9..12).include?(slot_hour)
-    when 3 # Medium energy  
+    when 3 # Medium energy
       (9..15).include?(slot_hour)
     else # Low energy
       (14..18).include?(slot_hour)
     end
   end.first(3)
-  
+
   optimal_slots.map do |slot|
     {
       start_time: slot[:start],
@@ -549,7 +567,7 @@ end
 
 def generate_immediate_actions(task)
   actions = []
-  
+
   # Check for dependencies
   if task[:dependencies]&.any?
     actions << {
@@ -558,7 +576,7 @@ def generate_immediate_actions(task)
       priority: 'high'
     }
   end
-  
+
   # Check for context requirements
   if task[:context_tags]&.include?('meeting')
     actions << {
@@ -567,7 +585,7 @@ def generate_immediate_actions(task)
       priority: 'medium'
     }
   end
-  
+
   # Check for resource requirements
   if task[:content]&.downcase&.include?('research')
     actions << {
@@ -576,13 +594,13 @@ def generate_immediate_actions(task)
       priority: 'medium'
     }
   end
-  
+
   actions
 end
 
-def get_energy_recommendations_for_date(date)
+def get_energy_recommendations_for_date(_date)
   hour = Time.now.hour
-  
+
   {
     current_energy_level: estimate_current_energy_level(hour),
     optimal_task_types: get_optimal_task_types_for_hour(hour),
@@ -607,7 +625,7 @@ def get_optimal_task_types_for_hour(hour)
   when 6..12
     ['complex analysis', 'creative work', 'problem solving']
   when 12..17
-    ['meetings', 'collaboration', 'communication']
+    %w[meetings collaboration communication]
   when 17..21
     ['planning', 'review', 'administrative tasks']
   else
@@ -647,61 +665,55 @@ private
 
 def calculate_event_duration(event)
   return 1 unless event[:start_time] && event[:end_time]
-  
+
   start_time = Time.parse(event[:start_time])
   end_time = Time.parse(event[:end_time])
   ((end_time - start_time) / 3600).round(1) # Return hours
-rescue
+rescue StandardError
   1 # Default to 1 hour if parsing fails
 end
 
 def find_next_available_time(events)
   return 'Now' if events.empty?
-  
+
   sorted_events = events.sort_by { |e| Time.parse(e[:start_time]) }
   last_event = sorted_events.last
-  
+
   return 'Now' unless last_event[:end_time]
-  
+
   end_time = Time.parse(last_event[:end_time])
   end_time.strftime('%H:%M')
-rescue
+rescue StandardError
   'Now'
 end
 
 def calculate_slot_confidence(slot, task)
   # Simple confidence calculation based on slot duration and task requirements
   base_confidence = 0.7
-  
+
   # Increase confidence if slot is longer than needed
-  if slot[:duration] > (task[:estimated_duration] || 60)
-    base_confidence += 0.2
-  end
-  
+  base_confidence += 0.2 if slot[:duration] > (task[:estimated_duration] || 60)
+
   # Decrease confidence if slot is barely adequate
-  if slot[:duration] < ((task[:estimated_duration] || 60) * 1.2)
-    base_confidence -= 0.1
-  end
-  
+  base_confidence -= 0.1 if slot[:duration] < ((task[:estimated_duration] || 60) * 1.2)
+
   [base_confidence, 1.0].min
 end
 
 def generate_slot_reasoning(slot, task)
   reasons = []
-  
+
   slot_hour = Time.parse(slot[:start].to_s).hour
   energy_level = task[:energy_level] || 3
-  
+
   if energy_level >= 4 && (9..12).include?(slot_hour)
     reasons << 'High-energy task scheduled during peak focus hours'
   elsif energy_level <= 2 && (15..18).include?(slot_hour)
     reasons << 'Low-energy task scheduled during afternoon low-focus period'
   end
-  
-  if slot[:duration] > (task[:estimated_duration] || 60)
-    reasons << 'Adequate buffer time available'
-  end
-  
+
+  reasons << 'Adequate buffer time available' if slot[:duration] > (task[:estimated_duration] || 60)
+
   reasons.join(', ')
 end
 
@@ -718,8 +730,8 @@ def log_error(error, request_context = {})
     remote_ip: request.env['REMOTE_ADDR'],
     timestamp: Time.now.iso8601
   }.merge(request_context)
-  
-  $logger.error error_details.to_json
+
+  $logger&.error error_details.to_json
   error_id
 end
 
@@ -727,51 +739,52 @@ end
 error 500 do
   error_id = log_error(env['sinatra.error'])
   status 500
-  { 
-    error: 'Internal server error', 
+  {
+    error: 'Internal server error',
     error_id: error_id,
     message: 'Please contact support with this error ID'
   }.to_json
 end
 
 error 404 do
-  $logger.warn "404 Not Found: #{request.path_info} from #{request.env['REMOTE_ADDR']}"
+  $logger&.warn "404 Not Found: #{request.path_info} from #{request.env['REMOTE_ADDR']}"
   { error: 'Not found', path: request.path_info }.to_json
 end
 
-error 401 do
-  $logger.warn "401 Unauthorized access attempt: #{request.path_info} from #{request.env['REMOTE_ADDR']}"
-  { error: 'Unauthorized' }.to_json
-end
+# 401 errors are handled by halt statements with specific messages
 
-error 400 do
-  { error: 'Bad request' }.to_json
-end
+# error 400 do
+#   { error: 'Bad request' }.to_json
+# end
 
 # Add request logging middleware
 before do
   @request_start_time = Time.now
-  $logger.info "#{request.request_method} #{request.path_info} - Started"
+  $logger&.info "#{request.request_method} #{request.path_info} - Started"
 end
 
 after do
-  duration = ((Time.now - @request_start_time) * 1000).round(2)
-  $logger.info "#{request.request_method} #{request.path_info} - Completed #{response.status} in #{duration}ms"
-end
-
-# Start background jobs
-Thread.new do
-  # Sync with external services every 5 minutes
-  loop do
-    begin
-      $task_manager.sync_with_todoist
-      $intelligence.update_patterns
-    rescue StandardError => e
-      $logger.error "Background sync error: #{e.message}"
-    end
-
-    sleep 300 # 5 minutes
+  if @request_start_time
+    duration = ((Time.now - @request_start_time) * 1000).round(2)
+    $logger&.info "#{request.request_method} #{request.path_info} - Completed #{response.status} in #{duration}ms"
   end
 end
 
-$logger.info 'Task Management Server started on port 3000'
+# Start background jobs (skip in test environment)
+unless ENV['RACK_ENV'] == 'test'
+  Thread.new do
+    # Sync with external services every 5 minutes
+    loop do
+      begin
+        $task_manager.sync_with_todoist
+        $intelligence.update_patterns
+      rescue StandardError => e
+        $logger.error "Background sync error: #{e.message}"
+      end
+
+      sleep 300 # 5 minutes
+    end
+  end
+
+  $logger.info 'Task Management Server started on port 3000'
+end

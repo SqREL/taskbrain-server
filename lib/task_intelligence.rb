@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class TaskIntelligence
   def initialize(task_manager, calendar, linear)
     @task_manager = task_manager
@@ -33,7 +35,7 @@ class TaskIntelligence
 
   def suggest_priorities
     tasks = @task_manager.get_tasks(status: 'active')
-    
+
     # Score tasks based on multiple factors
     scored_tasks = tasks.map do |task|
       score = calculate_comprehensive_score(task)
@@ -42,7 +44,7 @@ class TaskIntelligence
 
     # Sort by score and return top priorities
     priorities = scored_tasks.sort_by { |t| -t[:intelligence_score] }.first(10)
-    
+
     {
       high_priority: priorities.first(3),
       medium_priority: priorities[3..6],
@@ -55,7 +57,7 @@ class TaskIntelligence
     target_date = Date.parse(date)
     tasks = @task_manager.get_tasks(status: 'active')
     calendar_events = @calendar.get_events_for_date(date)
-    
+
     # Filter tasks suitable for the day
     suitable_tasks = tasks.select do |task|
       task[:due_date].nil? || Date.parse(task[:due_date].to_s) <= target_date + 3
@@ -63,7 +65,7 @@ class TaskIntelligence
 
     # Build time-based schedule
     schedule = build_optimal_schedule(suitable_tasks, calendar_events, target_date)
-    
+
     {
       morning_block: schedule[:morning],
       afternoon_block: schedule[:afternoon],
@@ -76,7 +78,8 @@ class TaskIntelligence
 
   def get_overdue_analysis
     overdue_tasks = @db[:tasks].where(
-      completed: false,
+      completed: false
+    ).where(
       Sequel.lit('due_date < ?', DateTime.now)
     ).all
 
@@ -102,13 +105,13 @@ class TaskIntelligence
     return { error: 'Task not found' } unless task
 
     parsed_date = Date.parse(new_date)
-    
+
     # Analyze impact of rescheduling
     impact = analyze_reschedule_impact(task, parsed_date)
-    
+
     # Check for conflicts
     conflicts = check_schedule_conflicts(parsed_date, task[:estimated_duration])
-    
+
     # Generate alternative suggestions if conflicts exist
     alternatives = conflicts.any? ? suggest_alternative_dates(task, parsed_date) : []
 
@@ -141,16 +144,16 @@ class TaskIntelligence
     ).count
 
     overdue_count = @task_manager.count_overdue_tasks
-    
+
     # Base score from completion rate
-    base_score = total_created > 0 ? (recent_completion.to_f / total_created * 100) : 50
-    
+    base_score = total_created.positive? ? (recent_completion.to_f / total_created * 100) : 50
+
     # Penalties for overdue tasks
     overdue_penalty = overdue_count * 5
-    
+
     # Bonus for consistent patterns
     consistency_bonus = calculate_consistency_bonus
-    
+
     score = [base_score - overdue_penalty + consistency_bonus, 0].max
     [score, 100].min.round(1)
   end
@@ -168,7 +171,7 @@ class TaskIntelligence
       focus_tasks: high_energy_tasks.first(3),
       quick_wins: get_quick_win_tasks,
       planning_items: get_planning_tasks,
-      energy_note: "Morning is optimal for high-energy, complex tasks"
+      energy_note: 'Morning is optimal for high-energy, complex tasks'
     }
   end
 
@@ -180,14 +183,14 @@ class TaskIntelligence
       collaborative_tasks: get_collaborative_tasks,
       medium_energy_tasks: get_medium_energy_tasks,
       communication_items: get_communication_tasks,
-      energy_note: "Afternoon is great for collaboration and communication"
+      energy_note: 'Afternoon is great for collaboration and communication'
     }
   end
 
   def get_planning_recommendations
     incomplete_projects = analyze_incomplete_projects
     upcoming_deadlines = @task_manager.get_upcoming_deadlines(10)
-    
+
     {
       project_health: incomplete_projects,
       deadline_alerts: upcoming_deadlines,
@@ -208,16 +211,16 @@ class TaskIntelligence
 
   def analyze_completion_patterns
     patterns = @db[:user_patterns].where(pattern_type: 'completion_time').all
-    
+
     return {} if patterns.empty?
 
     # Analyze by hour of day
     hourly_completions = patterns.group_by { |p| p[:pattern_data]['hour'] }
-    best_hours = hourly_completions.sort_by { |hour, completions| -completions.length }.first(3)
+    best_hours = hourly_completions.sort_by { |_hour, completions| -completions.length }.first(3)
 
     # Analyze by day of week
     daily_completions = patterns.group_by { |p| p[:pattern_data]['day'] }
-    best_days = daily_completions.sort_by { |day, completions| -completions.length }.first(3)
+    best_days = daily_completions.sort_by { |_day, completions| -completions.length }.first(3)
 
     {
       optimal_hours: best_hours.map(&:first),
@@ -236,10 +239,10 @@ class TaskIntelligence
 
     # Update time-based patterns
     update_time_patterns(recent_completions)
-    
+
     # Update complexity patterns
     update_complexity_patterns(recent_completions)
-    
+
     @logger.info "Updated intelligence patterns from #{recent_completions.length} recent completions"
   end
 
@@ -256,10 +259,10 @@ class TaskIntelligence
 
   def analyze_priority(task)
     content_keywords = extract_keywords(task[:content])
-    urgency_words = ['urgent', 'asap', 'critical', 'important', 'deadline']
-    
+    urgency_words = %w[urgent asap critical important deadline]
+
     urgency_score = urgency_words.any? { |word| content_keywords.include?(word) } ? 1 : 0
-    
+
     # Check for deadline proximity
     deadline_score = 0
     if task[:due_date]
@@ -269,7 +272,7 @@ class TaskIntelligence
     end
 
     suggested_priority = [task[:priority] + urgency_score + deadline_score, 5].min
-    
+
     {
       current: task[:priority],
       suggested: suggested_priority.round,
@@ -280,43 +283,43 @@ class TaskIntelligence
 
   def estimate_duration(task)
     content = task[:content].downcase
-    
+
     # Simple keyword-based estimation
-    if content.include?('quick') || content.include?('simple')
-      estimate = 15
-    elsif content.include?('review') || content.include?('check')
-      estimate = 30
-    elsif content.include?('meeting') || content.include?('call')
-      estimate = 60
-    elsif content.include?('research') || content.include?('analyze')
-      estimate = 120
-    elsif content.include?('create') || content.include?('build')
-      estimate = 180
-    else
-      estimate = 60 # default
-    end
+    estimate = if content.include?('quick') || content.include?('simple')
+                 15
+               elsif content.include?('review') || content.include?('check')
+                 30
+               elsif content.include?('meeting') || content.include?('call')
+                 60
+               elsif content.include?('research') || content.include?('analyze')
+                 120
+               elsif content.include?('create') || content.include?('build')
+                 180
+               else
+                 60 # default
+               end
 
     {
       estimate_minutes: estimate,
       confidence: 0.6,
-      reasoning: "Based on task content analysis"
+      reasoning: 'Based on task content analysis'
     }
   end
 
-  def suggest_optimal_time(task)
+  def suggest_optimal_time(_task)
     patterns = analyze_completion_patterns
-    
+
     if patterns[:optimal_hours]&.any?
       optimal_hour = patterns[:optimal_hours].first
       {
         suggested_time: "#{optimal_hour}:00",
-        reasoning: "Based on your completion patterns",
+        reasoning: 'Based on your completion patterns',
         confidence: 0.8
       }
     else
       {
-        suggested_time: "09:00",
-        reasoning: "General productivity recommendation",
+        suggested_time: '09:00',
+        reasoning: 'General productivity recommendation',
         confidence: 0.4
       }
     end
@@ -328,20 +331,20 @@ class TaskIntelligence
     potential_deps = []
 
     task_keywords = extract_keywords(task[:content])
-    
+
     all_tasks.each do |other_task|
       next if other_task[:id] == task[:id]
-      
+
       other_keywords = extract_keywords(other_task[:content])
       overlap = (task_keywords & other_keywords).length
-      
-      if overlap > 1
-        potential_deps << {
-          task_id: other_task[:id],
-          task_content: other_task[:content],
-          relationship_strength: overlap
-        }
-      end
+
+      next unless overlap > 1
+
+      potential_deps << {
+        task_id: other_task[:id],
+        task_content: other_task[:content],
+        relationship_strength: overlap
+      }
     end
 
     {
@@ -352,7 +355,7 @@ class TaskIntelligence
 
   def suggest_breakdown(task)
     content = task[:content]
-    
+
     # Suggest breakdown for complex tasks
     if content.length > 100 || content.include?('and') || content.include?('&')
       {
@@ -370,13 +373,13 @@ class TaskIntelligence
 
   def suggest_context(task)
     content = task[:content].downcase
-    
+
     contexts = []
     contexts << 'computer' if content.match?(/email|code|write|research|online/)
     contexts << 'phone' if content.match?(/call|contact|reach out/)
     contexts << 'meeting' if content.match?(/discuss|meet|present/)
     contexts << 'focused' if content.match?(/analyze|create|plan|design/)
-    
+
     {
       suggested_contexts: contexts,
       confidence: contexts.any? ? 0.7 : 0.3
@@ -385,34 +388,34 @@ class TaskIntelligence
 
   def build_auto_updates(suggestions)
     updates = {}
-    
+
     if suggestions[:priority_adjustment][:confidence] > 0.8
       updates[:priority] = suggestions[:priority_adjustment][:suggested]
     end
-    
+
     if suggestions[:time_estimate][:confidence] > 0.7
       updates[:estimated_duration] = suggestions[:time_estimate][:estimate_minutes]
     end
-    
+
     if suggestions[:context_recommendations][:confidence] > 0.7
       updates[:context_tags] = suggestions[:context_recommendations][:suggested_contexts]
     end
-    
+
     updates
   end
 
   def calculate_comprehensive_score(task)
     score = 0
-    
+
     # Priority weight (0-25 points)
     score += (task[:priority] || 1) * 5
-    
+
     # Urgency based on due date (0-25 points)
     if task[:due_date]
       days_until = (Date.parse(task[:due_date].to_s) - Date.today).to_i
-      if days_until < 0
+      if days_until.negative?
         score += 25 # Overdue
-      elsif days_until == 0
+      elsif days_until.zero?
         score += 20 # Due today
       elsif days_until <= 2
         score += 15 # Due soon
@@ -420,7 +423,7 @@ class TaskIntelligence
         score += 10 # Due this week
       end
     end
-    
+
     # Context relevance (0-15 points)
     current_hour = Time.now.hour
     if task[:energy_level]
@@ -432,23 +435,23 @@ class TaskIntelligence
         score += 8 # Low energy task in evening
       end
     end
-    
+
     # Project importance (0-10 points)
     if task[:project_id]
       project_task_count = @db[:tasks].where(project_id: task[:project_id], completed: false).count
       score += [project_task_count, 10].min
     end
-    
+
     # Dependency factor (0-10 points)
     dependent_tasks = @db[:tasks].where(Sequel.pg_array(:dependencies).contains([task[:id]])).count
     score += [dependent_tasks * 3, 10].min
-    
+
     score
   end
 
   def get_context_based_priorities
     current_hour = Time.now.hour
-    
+
     if (6..11).include?(current_hour)
       @db[:tasks].where(completed: false, energy_level: 4..5).order(:priority).limit(3).all
     elsif (12..17).include?(current_hour)
@@ -460,22 +463,23 @@ class TaskIntelligence
 
   def get_energy_matched_tasks
     current_hour = Time.now.hour
-    
+
     # Match tasks to typical energy levels throughout the day
-    if (6..10).include?(current_hour)
-      energy_filter = 4..5 # High energy morning
-    elsif (10..14).include?(current_hour)
-      energy_filter = 3..4 # Good mid-morning to early afternoon
-    elsif (14..17).include?(current_hour)
-      energy_filter = 2..3 # Moderate afternoon
-    else
-      energy_filter = 1..2 # Low energy evening/night
-    end
+    energy_filter = case current_hour
+                    when 6..10
+                      4..5 # High energy morning
+                    when 10..14
+                      3..4 # Good mid-morning to early afternoon
+                    when 14..17
+                      2..3 # Moderate afternoon
+                    else
+                      1..2 # Low energy evening/night
+                    end
 
     @db[:tasks].where(completed: false, energy_level: energy_filter).order(:priority).limit(5).all
   end
 
-  def build_optimal_schedule(tasks, events, date)
+  def build_optimal_schedule(tasks, _events, _date)
     schedule = {
       morning: [],
       afternoon: [],
@@ -489,7 +493,7 @@ class TaskIntelligence
     # Allocate to time blocks based on energy levels
     sorted_tasks.each do |task|
       energy = task[:energy_level] || 3
-      
+
       if energy >= 4 && schedule[:morning].length < 3
         schedule[:morning] << task
       elsif energy >= 3 && schedule[:afternoon].length < 4
@@ -506,14 +510,14 @@ class TaskIntelligence
 
   def calculate_daily_workload(schedule)
     total_minutes = 0
-    
+
     schedule.each do |period, tasks|
       next if period == :buffer
-      
+
       period_minutes = tasks.sum { |t| t[:estimated_duration] || 60 }
       total_minutes += period_minutes
     end
-    
+
     {
       total_minutes: total_minutes,
       total_hours: (total_minutes / 60.0).round(1),
@@ -532,34 +536,31 @@ class TaskIntelligence
 
   def optimize_for_energy_levels(schedule)
     recommendations = []
-    
+
     # Check if high-energy tasks are in morning
     morning_energy = schedule[:morning].map { |t| t[:energy_level] || 3 }.sum
-    if morning_energy < 10
-      recommendations << "Consider moving high-energy tasks to morning block"
-    end
-    
+    recommendations << 'Consider moving high-energy tasks to morning block' if morning_energy < 10
+
     # Check evening workload
     evening_workload = schedule[:evening].sum { |t| t[:estimated_duration] || 60 }
-    if evening_workload > 120
-      recommendations << "Evening block may be too heavy - consider lighter tasks"
-    end
-    
+    recommendations << 'Evening block may be too heavy - consider lighter tasks' if evening_workload > 120
+
     recommendations
   end
 
   def extract_keywords(text)
     # Simple keyword extraction
     words = text.downcase.split(/\W+/)
-    stopwords = %w[the and or but in on at to for of with by from a an is are was were be been being have has had do does did will would could should]
+    stopwords = %w[the and or but in on at to for of with by from a an is are was were be been being have has had do
+                   does did will would could should]
     words.reject { |word| stopwords.include?(word) || word.length < 3 }
   end
 
   def build_priority_reasoning(urgency_score, deadline_score)
     reasons = []
-    reasons << "Contains urgency keywords" if urgency_score > 0
-    reasons << "Has approaching deadline" if deadline_score > 0
-    reasons.join(", ")
+    reasons << 'Contains urgency keywords' if urgency_score.positive?
+    reasons << 'Has approaching deadline' if deadline_score.positive?
+    reasons.join(', ')
   end
 
   def generate_subtask_suggestions(content)
@@ -567,7 +568,8 @@ class TaskIntelligence
     if content.include?(' and ')
       content.split(' and ').map(&:strip)
     elsif content.length > 100
-      ["Plan and research for: #{content[0..50]}...", "Execute: #{content[0..50]}...", "Review and finalize: #{content[0..50]}..."]
+      ["Plan and research for: #{content[0..50]}...", "Execute: #{content[0..50]}...",
+       "Review and finalize: #{content[0..50]}..."]
     else
       []
     end
@@ -576,11 +578,11 @@ class TaskIntelligence
   # Additional helper methods would continue here...
   def calculate_avg_overdue_days(overdue_tasks)
     return 0 if overdue_tasks.empty?
-    
+
     total_overdue_days = overdue_tasks.sum do |task|
       (DateTime.now - task[:due_date]).to_i
     end
-    
+
     (total_overdue_days / overdue_tasks.length.to_f).round(1)
   end
 
@@ -594,36 +596,37 @@ class TaskIntelligence
 
   def count_dependency_blocks(overdue_tasks)
     overdue_ids = overdue_tasks.map { |t| t[:id] }
-    
+
     @db[:tasks].where(completed: false).select do |task|
       dependencies = task[:dependencies] || []
-      (dependencies & overdue_ids).any?
+      dependencies.intersect?(overdue_ids)
     end.count
   end
 
   def get_quick_win_tasks
     @db[:tasks].where(
-      completed: false,
+      completed: false
+    ).where(
       Sequel.lit('estimated_duration <= ?', 30)
     ).order(:priority).limit(5).all
   end
 
   def get_contextual_productivity_tip
     hour = Time.now.hour
-    
+
     case hour
     when 6..9
-      "Morning focus: Tackle your most challenging task first"
+      'Morning focus: Tackle your most challenging task first'
     when 9..12
-      "Peak performance time: Ideal for complex problem-solving"
+      'Peak performance time: Ideal for complex problem-solving'
     when 12..14
-      "Post-lunch: Good time for routine tasks and communication"
+      'Post-lunch: Good time for routine tasks and communication'
     when 14..17
-      "Afternoon energy: Collaborate and handle meetings"
+      'Afternoon energy: Collaborate and handle meetings'
     when 17..20
-      "Wind down: Review progress and plan tomorrow"
+      'Wind down: Review progress and plan tomorrow'
     else
-      "Evening: Light tasks and preparation for tomorrow"
+      'Evening: Light tasks and preparation for tomorrow'
     end
   end
 end

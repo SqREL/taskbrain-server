@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class TaskManager
   def initialize(db, redis, logger)
     @db = db
@@ -72,13 +74,13 @@ class TaskManager
 
     task_id = @db[:tasks].insert(task_data)
     task = get_task(task_id)
-    
+
     # Log creation event
     log_task_event(task_id, 'created', task_data)
-    
+
     # Cache in Redis for quick access
     @redis.setex("task:#{task_id}", 3600, task.to_json)
-    
+
     @logger.info "Created task: #{task[:content]} (ID: #{task_id})"
     task
   end
@@ -93,7 +95,7 @@ class TaskManager
 
     # Enhance with real-time data
     task = enhance_task_data(task)
-    
+
     # Cache result
     @redis.setex("task:#{id}", 3600, task.to_json)
     task
@@ -101,12 +103,12 @@ class TaskManager
 
   def get_tasks(filters = {})
     query = @db[:tasks]
-    
+
     query = query.where(completed: false) if filters[:status] == 'active'
     query = query.where(completed: true) if filters[:status] == 'completed'
     query = query.where(project_id: filters[:project]) if filters[:project]
     query = query.where(priority: filters[:priority]) if filters[:priority]
-    
+
     if filters[:due_date]
       case filters[:due_date]
       when 'today'
@@ -125,23 +127,21 @@ class TaskManager
   def update_task(id, data)
     # Invalidate cache
     @redis.del("task:#{id}")
-    
-    update_data = data.select { |k, v| 
-      ['content', 'description', 'priority', 'due_date', 'completed', 
-       'estimated_duration', 'energy_level', 'context_tags', 'labels'].include?(k) 
-    }
-    
+
+    update_data = data.slice('content', 'description', 'priority', 'due_date', 'completed', 'estimated_duration',
+                             'energy_level', 'context_tags', 'labels')
+
     update_data[:due_date] = parse_due_date(update_data[:due_date]) if update_data[:due_date]
     update_data[:updated_at] = DateTime.now
 
     rows_updated = @db[:tasks].where(id: id).update(update_data)
-    return nil if rows_updated == 0
+    return nil if rows_updated.zero?
 
     task = get_task(id)
-    
+
     # Log update event
     log_task_event(id, 'updated', update_data)
-    
+
     @logger.info "Updated task: #{task[:content]} (ID: #{id})"
     task
   end
@@ -152,26 +152,26 @@ class TaskManager
       updated_at: DateTime.now,
       actual_duration: actual_duration
     }
-    
+
     task = update_task(id, update_data)
-    
+
     if task
       log_task_event(id, 'completed', { actual_duration: actual_duration })
-      
+
       # Update productivity patterns
       update_completion_patterns(task)
-      
+
       @logger.info "Completed task: #{task[:content]} (ID: #{id})"
     end
-    
+
     task
   end
 
   def delete_task(id)
     @redis.del("task:#{id}")
     rows_deleted = @db[:tasks].where(id: id).delete
-    
-    if rows_deleted > 0
+
+    if rows_deleted.positive?
       log_task_event(id, 'deleted', {})
       @logger.info "Deleted task ID: #{id}"
       true
@@ -188,7 +188,8 @@ class TaskManager
 
   def count_overdue_tasks
     @db[:tasks].where(
-      completed: false,
+      completed: false
+    ).where(
       Sequel.lit('due_date < ?', DateTime.now)
     ).count
   end
@@ -241,10 +242,10 @@ class TaskManager
     return unless response.success?
 
     todoist_tasks = JSON.parse(response.body)
-    
+
     todoist_tasks.each do |todoist_task|
       existing_task = @db[:tasks].where(external_id: todoist_task['id']).first
-      
+
       task_data = {
         content: todoist_task['content'],
         description: todoist_task['description'],
@@ -272,15 +273,15 @@ class TaskManager
   def get_productivity_analytics(period = 'week')
     end_date = DateTime.now
     start_date = case period
-    when 'day'
-      end_date - 1
-    when 'week'
-      end_date - 7
-    when 'month'
-      end_date - 30
-    else
-      end_date - 7
-    end
+                 when 'day'
+                   end_date - 1
+                 when 'week'
+                   end_date - 7
+                 when 'month'
+                   end_date - 30
+                 else
+                   end_date - 7
+                 end
 
     completed_tasks = @db[:tasks].where(
       completed: true,
@@ -300,7 +301,7 @@ class TaskManager
       period: period,
       completed_tasks: completed_tasks,
       total_tasks: total_tasks,
-      completion_rate: total_tasks > 0 ? (completed_tasks.to_f / total_tasks * 100).round(2) : 0,
+      completion_rate: total_tasks.positive? ? (completed_tasks.to_f / total_tasks * 100).round(2) : 0,
       avg_completion_time: avg_completion_time.round(2)
     }
   end
@@ -311,22 +312,22 @@ class TaskManager
     # Add computed fields
     task = task.dup
     task[:is_overdue] = task[:due_date] && !task[:completed] && task[:due_date] < DateTime.now
-    task[:days_until_due] = task[:due_date] ? ((task[:due_date] - DateTime.now) / 86400).round : nil
+    task[:days_until_due] = task[:due_date] ? ((task[:due_date] - DateTime.now) / 86_400).round : nil
     task[:urgency_score] = calculate_urgency_score(task)
-    
+
     # Add subtasks if any
     task[:subtasks] = @db[:tasks].where(parent_id: task[:id]).all
-    
+
     task
   end
 
   def calculate_urgency_score(task)
     score = task[:priority] || 1
-    
+
     if task[:due_date]
-      days_until_due = (task[:due_date] - DateTime.now) / 86400
-      
-      if days_until_due < 0
+      days_until_due = (task[:due_date] - DateTime.now) / 86_400
+
+      if days_until_due.negative?
         score += 10 # Overdue
       elsif days_until_due < 1
         score += 5 # Due today
@@ -334,20 +335,20 @@ class TaskManager
         score += 3 # Due soon
       end
     end
-    
+
     score
   end
 
   def parse_due_date(date_string)
     return nil unless date_string
-    
+
     if date_string.is_a?(String)
       # Try parsing with Chronic for natural language
       Chronic.parse(date_string) || DateTime.parse(date_string)
     else
       date_string
     end
-  rescue
+  rescue StandardError
     nil
   end
 
@@ -364,7 +365,7 @@ class TaskManager
     # Analyze patterns for future intelligence
     hour_of_day = task[:updated_at].hour
     day_of_week = task[:updated_at].wday
-    
+
     pattern_data = {
       hour: hour_of_day,
       day: day_of_week,
