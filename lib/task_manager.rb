@@ -228,7 +228,8 @@ class TaskManager
   end
 
   def sync_with_todoist
-    token = @redis.get('todoist_token')
+    require_relative 'security_utils'
+    token = SecurityUtils.secure_get_token(@redis, 'todoist_token')
     return unless token
 
     # Fetch latest tasks from Todoist

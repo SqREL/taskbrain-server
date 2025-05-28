@@ -15,9 +15,19 @@ class WebhookHandler
   def verify_todoist_signature(payload, signature)
     return false unless signature
 
-    secret = ENV['WEBHOOK_SECRET']
+    secret = ENV['TODOIST_WEBHOOK_SECRET'] || ENV['WEBHOOK_SECRET']
     expected_signature = OpenSSL::HMAC.hexdigest('SHA256', secret, payload)
     Rack::Utils.secure_compare(signature, "sha256=#{expected_signature}")
+  end
+
+  def verify_linear_signature(payload, signature)
+    return false unless signature
+
+    secret = ENV['LINEAR_WEBHOOK_SECRET']
+    return false unless secret
+
+    expected_signature = OpenSSL::HMAC.hexdigest('SHA256', secret, payload)
+    Rack::Utils.secure_compare(signature, expected_signature)
   end
 
   def handle_todoist_event(data)

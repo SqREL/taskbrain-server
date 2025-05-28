@@ -154,15 +154,16 @@ class GoogleCalendarIntegration
   private
 
   def get_current_access_token
-    token = $redis.get('google_token')
-    refresh_token = $redis.get('google_refresh_token')
+    require_relative '../security_utils'
+    token = SecurityUtils.secure_get_token($redis, 'google_token')
+    refresh_token = SecurityUtils.secure_get_token($redis, 'google_refresh_token')
 
     return token if token && !token_expired?(token)
 
     return unless refresh_token
 
     new_token = refresh_access_token(refresh_token)
-    $redis.setex('google_token', 3600, new_token) if new_token
+    SecurityUtils.secure_store_token($redis, 'google_token', new_token) if new_token
     new_token
   end
 
