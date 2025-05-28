@@ -6,6 +6,7 @@ RUN apk add --no-cache \
     postgresql-dev \
     nodejs \
     npm \
+    yarn \
     git \
     tzdata
 
@@ -18,9 +19,9 @@ RUN bundle config --global frozen 1 && \
     bundle clean --force
 
 # Copy and install Node dependencies
-COPY package.json package-lock.json ./
-RUN npm ci --only=production && \
-    npm cache clean --force
+COPY package.json yarn.lock ./
+RUN yarn install --production --frozen-lockfile && \
+    yarn cache clean
 
 # Production stage
 FROM ruby:3.2-alpine AS production
@@ -55,4 +56,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 
 EXPOSE 3000
 
-CMD ["bundle", "exec", "puma", "-C", "config/puma.rb"]
+CMD ["bundle", "exec", "puma", "-C", "config/puma_simple.rb"]

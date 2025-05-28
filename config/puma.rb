@@ -18,11 +18,7 @@ environment ENV.fetch('RACK_ENV', 'production')
 # Preload application for better memory usage
 preload_app!
 
-# Restart workers every few requests to prevent memory bloat
-worker_max_requests ENV.fetch('WORKER_MAX_REQUESTS', 1000).to_i
-worker_max_requests_delta ENV.fetch('WORKER_MAX_REQUESTS_DELTA', 100).to_i
-
-# Worker timeout
+# Worker timeout for better memory management
 worker_timeout ENV.fetch('WORKER_TIMEOUT', 30).to_i
 
 # Set master PID file
