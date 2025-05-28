@@ -41,7 +41,10 @@ module TaskBrain
       @integration_name = integration_name
       @original_error = original_error
       message = "Error communicating with #{integration_name}"
-      message += ": #{original_error.message}" if original_error
+      if original_error
+        error_message = original_error.respond_to?(:message) ? original_error.message : original_error.to_s
+        message += ": #{error_message}"
+      end
       super(message)
     end
   end
