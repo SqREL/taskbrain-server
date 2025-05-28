@@ -46,15 +46,15 @@ class MockLogger
   def info(*args)
     puts "INFO: #{args.join(' ')}" if ENV['DEBUG_TESTS']
   end
-  
+
   def warn(*args)
     puts "WARN: #{args.join(' ')}" if ENV['DEBUG_TESTS']
   end
-  
+
   def error(*args)
     puts "ERROR: #{args.join(' ')}"
   end
-  
+
   def debug(*args)
     puts "DEBUG: #{args.join(' ')}" if ENV['DEBUG_TESTS']
   end
@@ -65,11 +65,11 @@ class MockTaskManager
     @task_counter = 0
   end
 
-  def get_tasks(filters = {})
+  def get_tasks(_filters = {})
     []
   end
 
-  def get_task(id)
+  def get_task(_id)
     nil
   end
 
@@ -90,11 +90,11 @@ class MockTaskManager
     }
   end
 
-  def update_task(id, data)
+  def update_task(_id, _data)
     true
   end
 
-  def delete_task(id)
+  def delete_task(_id)
     true
   end
 
@@ -114,17 +114,17 @@ class MockTaskManager
     0
   end
 
-  def get_recent_activity(*args)
+  def get_recent_activity(*_args)
     []
   end
 
-  def get_upcoming_deadlines(*args)
+  def get_upcoming_deadlines(*_args)
     []
   end
 end
 
 class MockIntelligence
-  def analyze_new_task(task)
+  def analyze_new_task(_task)
     {
       priority_adjustment: { suggested: 4, confidence: 0.8 },
       time_estimate: { estimate_minutes: 90, confidence: 0.7 },
@@ -136,15 +136,15 @@ class MockIntelligence
     75.0
   end
 
-  def suggest_priorities(*args)
+  def suggest_priorities(*_args)
     { high_priority: [], medium_priority: [], context_based: [], energy_matched: [] }
   end
 
-  def suggest_daily_schedule(*args)
+  def suggest_daily_schedule(*_args)
     { morning_block: [], afternoon_block: [], evening_block: [] }
   end
 
-  def smart_reschedule(*args)
+  def smart_reschedule(*_args)
     { feasible: true, conflicts: [], alternatives: [], impact_score: 0.8, rescheduled: true }
   end
 
@@ -152,31 +152,31 @@ class MockIntelligence
     {}
   end
 
-  def get_general_recommendations
+  def general_recommendations
     []
   end
 
-  def get_morning_recommendations
+  def morning_recommendations
     []
   end
 
-  def get_afternoon_recommendations
+  def afternoon_recommendations
     []
   end
 
-  def get_planning_recommendations
+  def planning_recommendations
     []
   end
 
-  def get_overdue_analysis
+  def overdue_analysis
     {}
   end
 
-  def analyze_task_impact(task)
+  def analyze_task_impact(_task)
     {}
   end
 
-  def analyze_priority(task)
+  def analyze_priority(_task)
     { confidence: 0.5, suggested_priority: 3 }
   end
 
@@ -186,11 +186,11 @@ class MockIntelligence
 end
 
 class MockCalendar
-  def get_events_for_date(date)
+  def get_events_for_date(_date)
     []
   end
 
-  def find_available_slots(date, duration, token = nil)
+  def find_available_slots(_date, _duration, _token = nil)
     []
   end
 end

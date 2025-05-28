@@ -80,3 +80,47 @@ Critical environment variables that must be set:
 - ENCRYPTION_KEY: Base64-encoded 32-byte key for token encryption
 - TODOIST_WEBHOOK_SECRET, LINEAR_WEBHOOK_SECRET: Webhook signature verification
 - ALLOWED_ORIGINS: Comma-separated list of allowed CORS origins
+
+## Ruby Development Best Practices
+
+### Code Style Guidelines
+- Use Ruby 3.x features where appropriate (pattern matching, Data objects for immutable structures)
+- Prefer keyword arguments for methods with multiple parameters for clarity
+- Use `frozen_string_literal: true` pragma in all Ruby files for performance
+- Follow Ruby naming conventions: snake_case for methods/variables, CamelCase for classes
+
+### Common Patterns in This Codebase
+- **Service Objects**: Task operations are encapsulated in service classes (TaskManager, TaskIntelligence)
+- **Middleware Pattern**: Authentication is handled via Sinatra middleware, not in individual routes
+- **Dependency Injection**: Mock objects are injected for testing rather than using global state
+- **Error Handling**: Use specific exception classes and rescue at appropriate levels
+
+### Security Patterns
+- **Never use string interpolation with user input in SQL/commands**
+- Use parameterized queries with Sequel ORM
+- Validate all input using ValidationUtils before processing
+- Use `\A` and `\z` for regex boundaries, not `^` and `$`
+- Avoid `send` and `eval` with any user-controlled input
+
+### Testing Patterns
+- Each spec file should test a single class/module
+- Use `let` and `let!` for test data setup
+- Mock external dependencies (HTTP calls, Redis, DB) for unit tests
+- Integration tests should use database transactions for cleanup
+
+### Performance Considerations
+- Use Redis for frequently accessed data (tokens, temporary state)
+- Implement pagination for list endpoints
+- Use Sidekiq for background processing of heavy operations
+- Cache expensive AI analysis results with appropriate TTL
+
+### Sinatra-Specific Patterns
+- Use `before` filters for authentication/common setup
+- Keep routes thin - delegate logic to service objects
+- Use `halt` for early returns with proper status codes
+- Configure CORS properly for each environment
+
+### Common Debugging Commands
+- **Check Sinatra routes**: `asdf exec bundle exec ruby -r./server -e 'puts Sinatra::Application.routes'`
+- **Interactive console**: `asdf exec bundle exec irb -r ./server`
+- **Database console**: `asdf exec bundle exec sequel postgres://localhost/taskbrain_development`

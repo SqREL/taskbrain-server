@@ -48,8 +48,8 @@ class TaskIntelligence
     {
       high_priority: priorities.first(3),
       medium_priority: priorities[3..6],
-      context_based: get_context_based_priorities,
-      energy_matched: get_energy_matched_tasks
+      context_based: context_based_priorities,
+      energy_matched: energy_matched_tasks
     }
   end
 
@@ -76,7 +76,7 @@ class TaskIntelligence
     }
   end
 
-  def get_overdue_analysis
+  def overdue_analysis
     overdue_tasks = @db[:tasks].where(
       completed: false
     ).where(
@@ -158,9 +158,9 @@ class TaskIntelligence
     [score, 100].min.round(1)
   end
 
-  def get_morning_recommendations
+  def morning_recommendations
     current_hour = Time.now.hour
-    return get_general_recommendations unless (6..11).include?(current_hour)
+    return general_recommendations unless (6..11).include?(current_hour)
 
     high_energy_tasks = @db[:tasks].where(
       completed: false,
@@ -169,15 +169,15 @@ class TaskIntelligence
 
     {
       focus_tasks: high_energy_tasks.first(3),
-      quick_wins: get_quick_win_tasks,
+      quick_wins: quick_win_tasks,
       planning_items: get_planning_tasks,
       energy_note: 'Morning is optimal for high-energy, complex tasks'
     }
   end
 
-  def get_afternoon_recommendations
+  def afternoon_recommendations
     current_hour = Time.now.hour
-    return get_general_recommendations unless (12..17).include?(current_hour)
+    return general_recommendations unless (12..17).include?(current_hour)
 
     {
       collaborative_tasks: get_collaborative_tasks,
@@ -187,7 +187,7 @@ class TaskIntelligence
     }
   end
 
-  def get_planning_recommendations
+  def planning_recommendations
     incomplete_projects = analyze_incomplete_projects
     upcoming_deadlines = @task_manager.get_upcoming_deadlines(10)
 
@@ -200,12 +200,12 @@ class TaskIntelligence
     }
   end
 
-  def get_general_recommendations
+  def general_recommendations
     {
       top_priorities: suggest_priorities[:high_priority],
-      quick_actions: get_quick_win_tasks,
-      overdue_attention: get_overdue_analysis[:critical_overdue],
-      productivity_tip: get_contextual_productivity_tip
+      quick_actions: quick_win_tasks,
+      overdue_attention: overdue_analysis[:critical_overdue],
+      productivity_tip: contextual_productivity_tip
     }
   end
 
@@ -449,7 +449,7 @@ class TaskIntelligence
     score
   end
 
-  def get_context_based_priorities
+  def context_based_priorities
     current_hour = Time.now.hour
 
     if (6..11).include?(current_hour)
@@ -461,7 +461,7 @@ class TaskIntelligence
     end
   end
 
-  def get_energy_matched_tasks
+  def energy_matched_tasks
     current_hour = Time.now.hour
 
     # Match tasks to typical energy levels throughout the day
@@ -603,7 +603,7 @@ class TaskIntelligence
     end.count
   end
 
-  def get_quick_win_tasks
+  def quick_win_tasks
     @db[:tasks].where(
       completed: false
     ).where(
@@ -611,7 +611,7 @@ class TaskIntelligence
     ).order(:priority).limit(5).all
   end
 
-  def get_contextual_productivity_tip
+  def contextual_productivity_tip
     hour = Time.now.hour
 
     case hour

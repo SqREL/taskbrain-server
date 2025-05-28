@@ -72,7 +72,7 @@ RSpec.describe LinearIntegration do
         'title' => 'Test Issue',
         'state' => { 'name' => 'In Progress' }
       }
-      
+
       mock_response = {
         'data' => {
           'issue' => mock_issue
@@ -131,7 +131,7 @@ RSpec.describe LinearIntegration do
     end
   end
 
-  describe '#get_teams' do
+  describe '#teams' do
     it 'fetches teams list' do
       mock_teams = [
         { 'id' => 'team_1', 'name' => 'Team 1', 'key' => 'T1' }
@@ -141,7 +141,7 @@ RSpec.describe LinearIntegration do
         double('Response', success?: true, dig: mock_teams)
       )
 
-      result = integration.get_teams
+      result = integration.teams
       expect(result).to eq(mock_teams)
     end
 
@@ -150,7 +150,7 @@ RSpec.describe LinearIntegration do
         double('Response', success?: false)
       )
 
-      result = integration.get_teams
+      result = integration.teams
       expect(result).to eq([])
     end
   end
@@ -239,7 +239,7 @@ RSpec.describe LinearIntegration do
       expect(result).to include(
         content: 'Test Issue',
         description: 'Issue description',
-        priority: 4,  # Linear priority 3 (High) converts to task priority 4
+        priority: 4, # Linear priority 3 (High) converts to task priority 4
         due_date: '2024-01-15',
         external_id: issue_id,
         source: 'linear'
@@ -267,7 +267,7 @@ RSpec.describe LinearIntegration do
 
       result = integration.create_task_from_issue(issue_id)
       expect(result[:content]).to eq('Minimal Issue')
-      expect(result[:priority]).to eq(3)  # Linear priority 2 (Medium) converts to task priority 3
+      expect(result[:priority]).to eq(3) # Linear priority 2 (Medium) converts to task priority 3
       expect(result[:context_tags]).to eq(['development'])
     end
   end

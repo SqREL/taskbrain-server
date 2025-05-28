@@ -51,7 +51,7 @@ class GoogleCalendarIntegration
   end
 
   def get_events_for_date(date, access_token = nil)
-    access_token ||= get_current_access_token
+    access_token ||= current_access_token
     return [] unless access_token
 
     start_time = DateTime.parse(date).beginning_of_day.iso8601
@@ -76,7 +76,7 @@ class GoogleCalendarIntegration
   end
 
   def get_free_busy(start_time, end_time, access_token = nil)
-    access_token ||= get_current_access_token
+    access_token ||= current_access_token
     return {} unless access_token
 
     response = self.class.post('/calendar/v3/freeBusy', {
@@ -95,7 +95,7 @@ class GoogleCalendarIntegration
   end
 
   def create_event(event_data, access_token = nil)
-    access_token ||= get_current_access_token
+    access_token ||= current_access_token
     return nil unless access_token
 
     response = self.class.post('/calendar/v3/calendars/primary/events', {
@@ -153,7 +153,7 @@ class GoogleCalendarIntegration
 
   private
 
-  def get_current_access_token
+  def current_access_token
     require_relative '../security_utils'
     token = SecurityUtils.secure_get_token($redis, 'google_token')
     refresh_token = SecurityUtils.secure_get_token($redis, 'google_refresh_token')

@@ -138,7 +138,7 @@ class LinearIntegration
     response.success? && response.dig('data', 'issueUpdate', 'success')
   end
 
-  def get_teams
+  def teams
     query = <<~GRAPHQL
       query GetTeams {
         teams {

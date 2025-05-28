@@ -32,7 +32,7 @@ module AppHelper
 
   def mock_intelligence_methods
     allow($intelligence).to receive_messages(analyze_new_task: sample_intelligence_analysis,
-                                             calculate_productivity_score: 75.5, analyze_completion_patterns: sample_patterns, get_general_recommendations: sample_recommendations, suggest_daily_schedule: sample_schedule, smart_reschedule: sample_reschedule_result, analyze_task_impact: sample_impact_analysis)
+                                             calculate_productivity_score: 75.5, analyze_completion_patterns: sample_patterns, general_recommendations: sample_recommendations, suggest_daily_schedule: sample_schedule, smart_reschedule: sample_reschedule_result, analyze_task_impact: sample_impact_analysis)
   end
 
   def mock_calendar_methods

@@ -85,15 +85,15 @@ RSpec.describe SecurityUtils do
     it 'stores and retrieves tokens securely' do
       # Mock Redis to capture the encrypted token
       stored_token = nil
-      
+
       expect(mock_redis).to receive(:setex) do |k, ttl, enc_token|
         expect(k).to eq(key)
         expect(ttl).to eq(3600)
         stored_token = enc_token
       end
-      
+
       described_class.secure_store_token(mock_redis, key, token)
-      
+
       # Return the same encrypted token that was stored
       expect(mock_redis).to receive(:get).with(key).and_return(stored_token)
       retrieved_token = described_class.secure_get_token(mock_redis, key)
@@ -211,11 +211,11 @@ RSpec.describe SecurityUtils do
 
       # Decode the encrypted data
       combined = Base64.strict_decode64(encrypted)
-      
+
       # Tamper with the auth tag portion (bytes 12-27)
       tampered_combined = combined.dup
       tampered_combined[12] = (tampered_combined[12].ord ^ 0xFF).chr
-      
+
       # Re-encode
       tampered = Base64.strict_encode64(tampered_combined)
 

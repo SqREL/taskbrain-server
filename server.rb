@@ -63,7 +63,7 @@ end
 def authenticate_request
   api_key = request.env['HTTP_AUTHORIZATION']&.sub(/^Bearer /, '')
   env_key = ENV.fetch('API_KEY', nil)
-  
+
   api_key && env_key && Rack::Utils.secure_compare(api_key, env_key)
 end
 
@@ -140,9 +140,7 @@ end
 get '/api/tasks' do
   filter_errors = ValidationUtils.validate_filters(params)
 
-  if filter_errors.any?
-    halt 400, { errors: filter_errors }.to_json
-  end
+  halt 400, { errors: filter_errors }.to_json if filter_errors.any?
 
   filters = {
     project: params[:project],
@@ -168,9 +166,7 @@ end
 post '/api/tasks' do
   validation_result = ValidationUtils.validate_and_parse_json(request.body.read)
 
-  if validation_result[:errors]
-    halt 400, { errors: validation_result[:errors] }.to_json
-  end
+  halt 400, { errors: validation_result[:errors] }.to_json if validation_result[:errors]
 
   # Create task with intelligence
   task = $task_manager.create_task(validation_result[:data])
@@ -185,9 +181,7 @@ end
 put '/api/tasks/:id' do
   validation_result = ValidationUtils.validate_and_parse_json(request.body.read)
 
-  if validation_result[:errors]
-    halt 400, { errors: validation_result[:errors] }.to_json
-  end
+  halt 400, { errors: validation_result[:errors] }.to_json if validation_result[:errors]
 
   task = $task_manager.update_task(params[:id], validation_result[:data])
 
@@ -223,7 +217,7 @@ get '/api/intelligence/schedule' do
 end
 
 get '/api/intelligence/overdue' do
-  overdue = $intelligence.get_overdue_analysis
+  overdue = $intelligence.overdue_analysis
   { overdue: overdue }.to_json
 end
 
@@ -312,7 +306,7 @@ get '/api/claude/full_context' do
     productivity: {
       score: $intelligence.calculate_productivity_score,
       patterns: $intelligence.analyze_completion_patterns,
-      recommendations: $intelligence.get_general_recommendations
+      recommendations: $intelligence.general_recommendations
     },
     calendar: $calendar.get_events_for_date(Date.today.to_s),
     capacity: analyze_current_capacity,
@@ -334,7 +328,7 @@ post '/api/claude/smart_create' do
   # Enhanced AI analysis
   task = $task_manager.create_task(validation_result[:data])
   intelligence = $intelligence.analyze_new_task(task)
-  calendar_context = get_calendar_availability_context
+  calendar_context = calendar_availability_context
 
   {
     task: task,
@@ -348,10 +342,8 @@ end
 # Bulk task operations for Claude
 post '/api/claude/bulk_create' do
   body = request.body.read
-  
-  if body.nil? || body.strip.empty?
-    halt 400, { errors: ['Request body is required'] }.to_json
-  end
+
+  halt 400, { errors: ['Request body is required'] }.to_json if body.nil? || body.strip.empty?
 
   begin
     data = JSON.parse(body)
@@ -360,9 +352,7 @@ post '/api/claude/bulk_create' do
   end
 
   tasks_data = data['tasks']
-  unless tasks_data.is_a?(Array)
-    halt 400, { errors: ['Tasks must be an array'] }.to_json
-  end
+  halt 400, { errors: ['Tasks must be an array'] }.to_json unless tasks_data.is_a?(Array)
 
   results = []
   tasks_data.each_with_index do |task_data, index|
@@ -415,10 +405,8 @@ end
 # Intelligent batch rescheduling
 post '/api/claude/reschedule_batch' do
   body = request.body.read
-  
-  if body.nil? || body.strip.empty?
-    halt 400, { errors: ['Request body is required'] }.to_json
-  end
+
+  halt 400, { errors: ['Request body is required'] }.to_json if body.nil? || body.strip.empty?
 
   begin
     data = JSON.parse(body)
@@ -427,9 +415,7 @@ post '/api/claude/reschedule_batch' do
   end
 
   reschedule_requests = data['reschedule_requests']
-  unless reschedule_requests.is_a?(Array)
-    halt 400, { errors: ['Reschedule requests must be an array'] }.to_json
-  end
+  halt 400, { errors: ['Reschedule requests must be an array'] }.to_json unless reschedule_requests.is_a?(Array)
 
   results = []
   reschedule_requests.each do |request|
@@ -480,13 +466,13 @@ get '/api/claude/recommendations' do
 
   recommendations = case context
                     when 'morning'
-                      $intelligence.get_morning_recommendations
+                      $intelligence.morning_recommendations
                     when 'afternoon'
-                      $intelligence.get_afternoon_recommendations
+                      $intelligence.afternoon_recommendations
                     when 'planning'
-                      $intelligence.get_planning_recommendations
+                      $intelligence.planning_recommendations
                     else
-                      $intelligence.get_general_recommendations
+                      $intelligence.general_recommendations
                     end
 
   recommendations.to_json
@@ -523,7 +509,7 @@ def get_capacity_recommendation(minutes)
   end
 end
 
-def get_calendar_availability_context
+def calendar_availability_context
   today = Date.today.to_s
   events = $calendar.get_events_for_date(today)
 

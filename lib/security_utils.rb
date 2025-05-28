@@ -5,13 +5,11 @@ require 'base64'
 
 class SecurityUtils
   def self.encryption_key
-    @encryption_key ||= begin
-      if ENV['ENCRYPTION_KEY']
-        Base64.strict_decode64(ENV['ENCRYPTION_KEY'])
-      else
-        generate_key
-      end
-    end
+    @encryption_key ||= if ENV['ENCRYPTION_KEY']
+                          Base64.strict_decode64(ENV['ENCRYPTION_KEY'])
+                        else
+                          generate_key
+                        end
   end
 
   def self.generate_key

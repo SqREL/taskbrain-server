@@ -1,64 +1,25 @@
 # frozen_string_literal: true
 
 class ValidationUtils
+  # Validation constraints
+  CONTENT_MAX_LENGTH = 1000
+  DESCRIPTION_MAX_LENGTH = 5000
+  PRIORITY_RANGE = 1..5
+  ENERGY_LEVEL_RANGE = 1..5
+  VALID_DUE_DATE_FILTERS = %w[today week overdue].freeze
+  VALID_STATUS_FILTERS = %w[active completed].freeze
+
   def self.validate_task_data(data)
     errors = []
 
-    # Helper method to get value with either string or symbol key
-    get_value = ->(hash, key) { hash[key] || hash[key.to_sym] }
-
-    # Required fields
-    content = get_value.call(data, 'content')
-    unless content.is_a?(String) && content.strip.length.positive?
-      errors << 'Content is required and must be a non-empty string'
-    end
-
-    # Content length check
-    errors << 'Content must be less than 1000 characters' if content&.length && content.length > 1000
-
-    # Priority validation
-    priority = get_value.call(data, 'priority')
-    if priority && (!priority.is_a?(Integer) || !(1..5).include?(priority))
-      errors << 'Priority must be an integer between 1 and 5'
-    end
-
-    # Due date validation
-    due_date = get_value.call(data, 'due_date')
-    if due_date && !valid_date_format?(due_date)
-      errors << 'Due date must be a valid ISO 8601 date or natural language'
-    end
-
-    # Energy level validation
-    energy_level = get_value.call(data, 'energy_level')
-    if energy_level && (!energy_level.is_a?(Integer) || !(1..5).include?(energy_level))
-      errors << 'Energy level must be an integer between 1 and 5'
-    end
-
-    # Estimated duration validation
-    estimated_duration = get_value.call(data, 'estimated_duration')
-    if estimated_duration && (!estimated_duration.is_a?(Integer) || estimated_duration <= 0)
-      errors << 'Estimated duration must be a positive integer (minutes)'
-    end
-
-    # Labels validation
-    labels = get_value.call(data, 'labels')
-    if labels && (!labels.is_a?(Array) || labels.any? { |l| !l.is_a?(String) })
-      errors << 'Labels must be an array of strings'
-    end
-
-    # Context tags validation
-    context_tags = get_value.call(data, 'context_tags')
-    if context_tags && (!context_tags.is_a?(Array) || context_tags.any? do |t|
-      !t.is_a?(String)
-    end)
-      errors << 'Context tags must be an array of strings'
-    end
-
-    # Description length check
-    description = get_value.call(data, 'description')
-    if description && description.length > 5000
-      errors << 'Description must be less than 5000 characters'
-    end
+    errors.concat(validate_content(data))
+    errors.concat(validate_priority(data))
+    errors.concat(validate_due_date(data))
+    errors.concat(validate_energy_level(data))
+    errors.concat(validate_duration(data))
+    errors.concat(validate_labels(data))
+    errors.concat(validate_context_tags(data))
+    errors.concat(validate_description(data))
 
     errors
   end
@@ -81,35 +42,12 @@ class ValidationUtils
   end
 
   def self.sanitize_task_data(data)
-    sanitized = {}
-
-    # Helper method to get value with either string or symbol key
-    get_value = ->(hash, key) { hash[key] || hash[key.to_sym] }
-
-    # Sanitize strings
-    sanitized['content'] = sanitize_string(get_value.call(data, 'content'))
-    sanitized['description'] = sanitize_string(get_value.call(data, 'description')) if get_value.call(data, 'description')
-    sanitized['project_id'] = sanitize_string(get_value.call(data, 'project_id')) if get_value.call(data, 'project_id')
-
-    # Safe copy of validated fields
-    sanitized['priority'] = get_value.call(data, 'priority') if get_value.call(data, 'priority')
-    sanitized['energy_level'] = get_value.call(data, 'energy_level') if get_value.call(data, 'energy_level')
-    sanitized['estimated_duration'] = get_value.call(data, 'estimated_duration') if get_value.call(data, 'estimated_duration')
-    sanitized['due_date'] = get_value.call(data, 'due_date') if get_value.call(data, 'due_date')
-
-    # Sanitize arrays
-    labels = get_value.call(data, 'labels')
-    sanitized['labels'] = labels&.map { |l| sanitize_string(l) }&.compact if labels
-    context_tags = get_value.call(data, 'context_tags')
-    sanitized['context_tags'] = context_tags&.map { |t| sanitize_string(t) }&.compact if context_tags
-    dependencies = get_value.call(data, 'dependencies')
-    sanitized['dependencies'] = dependencies if dependencies.is_a?(Array)
-
-    # Copy other safe fields
-    sanitized['source'] = get_value.call(data, 'source') if get_value.call(data, 'source')
-    sanitized['external_id'] = get_value.call(data, 'external_id') if get_value.call(data, 'external_id')
-
-    sanitized
+    {}.tap do |sanitized|
+      sanitize_string_fields(sanitized, data)
+      sanitize_numeric_fields(sanitized, data)
+      sanitize_array_fields(sanitized, data)
+      sanitize_other_fields(sanitized, data)
+    end
   end
 
   def self.validate_filters(params)
@@ -117,12 +55,12 @@ class ValidationUtils
 
     errors << 'Priority filter must be between 1 and 5' if params[:priority] && !params[:priority].match?(/^[1-5]$/)
 
-    if params[:due_date] && !%w[today week overdue].include?(params[:due_date])
-      errors << 'Due date filter must be one of: today, week, overdue'
+    if params[:due_date] && !VALID_DUE_DATE_FILTERS.include?(params[:due_date])
+      errors << "Due date filter must be one of: #{VALID_DUE_DATE_FILTERS.join(', ')}"
     end
 
-    if params[:status] && !%w[active completed].include?(params[:status])
-      errors << 'Status filter must be one of: active, completed'
+    if params[:status] && !VALID_STATUS_FILTERS.include?(params[:status])
+      errors << "Status filter must be one of: #{VALID_STATUS_FILTERS.join(', ')}"
     end
 
     errors
@@ -149,6 +87,126 @@ class ValidationUtils
     str.strip
        .gsub(/[<>\"']/, '') # Remove basic HTML/script chars
        .gsub(/\s+/, ' ')    # Normalize whitespace
-       .slice(0, 1000)      # Limit length
+       .slice(0, CONTENT_MAX_LENGTH) # Limit length
+  end
+
+  # Private validation methods
+  private_class_method def self.validate_content(data)
+    errors = []
+    content = get_value(data, 'content')
+
+    unless content.is_a?(String) && content.strip.length.positive?
+      errors << 'Content is required and must be a non-empty string'
+    end
+
+    if content&.length && content.length > CONTENT_MAX_LENGTH
+      errors << "Content must be less than #{CONTENT_MAX_LENGTH} characters"
+    end
+
+    errors
+  end
+
+  private_class_method def self.validate_priority(data)
+    priority = get_value(data, 'priority')
+    return [] unless priority
+
+    unless priority.is_a?(Integer) && PRIORITY_RANGE.include?(priority)
+      return ["Priority must be an integer between #{PRIORITY_RANGE.min} and #{PRIORITY_RANGE.max}"]
+    end
+
+    []
+  end
+
+  private_class_method def self.validate_due_date(data)
+    due_date = get_value(data, 'due_date')
+    return [] unless due_date
+
+    valid_date_format?(due_date) ? [] : ['Due date must be a valid ISO 8601 date or natural language']
+  end
+
+  private_class_method def self.validate_energy_level(data)
+    energy_level = get_value(data, 'energy_level')
+    return [] unless energy_level
+
+    unless energy_level.is_a?(Integer) && ENERGY_LEVEL_RANGE.include?(energy_level)
+      return ["Energy level must be an integer between #{ENERGY_LEVEL_RANGE.min} and #{ENERGY_LEVEL_RANGE.max}"]
+    end
+
+    []
+  end
+
+  private_class_method def self.validate_duration(data)
+    duration = get_value(data, 'estimated_duration')
+    return [] unless duration
+
+    unless duration.is_a?(Integer) && duration.positive?
+      return ['Estimated duration must be a positive integer (minutes)']
+    end
+
+    []
+  end
+
+  private_class_method def self.validate_labels(data)
+    labels = get_value(data, 'labels')
+    return [] unless labels
+
+    return ['Labels must be an array of strings'] unless labels.is_a?(Array) && labels.all? { |l| l.is_a?(String) }
+
+    []
+  end
+
+  private_class_method def self.validate_context_tags(data)
+    tags = get_value(data, 'context_tags')
+    return [] unless tags
+
+    return ['Context tags must be an array of strings'] unless tags.is_a?(Array) && tags.all? { |t| t.is_a?(String) }
+
+    []
+  end
+
+  private_class_method def self.validate_description(data)
+    description = get_value(data, 'description')
+    return [] unless description && description.length > DESCRIPTION_MAX_LENGTH
+
+    ["Description must be less than #{DESCRIPTION_MAX_LENGTH} characters"]
+  end
+
+  # Private sanitization methods
+  private_class_method def self.sanitize_string_fields(sanitized, data)
+    %w[content description project_id].each do |field|
+      value = get_value(data, field)
+      sanitized[field] = sanitize_string(value) if value
+    end
+  end
+
+  private_class_method def self.sanitize_numeric_fields(sanitized, data)
+    %w[priority energy_level estimated_duration].each do |field|
+      value = get_value(data, field)
+      sanitized[field] = value if value
+    end
+  end
+
+  private_class_method def self.sanitize_array_fields(sanitized, data)
+    %w[labels context_tags].each do |field|
+      array = get_value(data, field)
+      next unless array.is_a?(Array)
+
+      sanitized[field] = array.map { |item| sanitize_string(item) }.compact
+    end
+
+    dependencies = get_value(data, 'dependencies')
+    sanitized['dependencies'] = dependencies if dependencies.is_a?(Array)
+  end
+
+  private_class_method def self.sanitize_other_fields(sanitized, data)
+    %w[due_date source external_id].each do |field|
+      value = get_value(data, field)
+      sanitized[field] = value if value
+    end
+  end
+
+  # Helper method to get value with either string or symbol key
+  private_class_method def self.get_value(hash, key)
+    hash[key] || hash[key.to_sym]
   end
 end

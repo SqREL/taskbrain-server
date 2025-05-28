@@ -6,7 +6,7 @@ require_relative '../../support/app_helper'
 
 RSpec.describe WebhookHandler do
   include AppHelper
-  
+
   let(:mock_task_manager) { double('TaskManager') }
   let(:mock_intelligence) { double('TaskIntelligence') }
   let(:mock_logger) { double('Logger') }
@@ -16,11 +16,10 @@ RSpec.describe WebhookHandler do
   before do
     mock_db = double('Database')
     mock_tasks_dataset = double('TasksDataset')
-    
+
     allow(mock_db).to receive(:[]).with(:tasks).and_return(mock_tasks_dataset)
-    allow(mock_tasks_dataset).to receive(:where).and_return(mock_tasks_dataset)
-    allow(mock_tasks_dataset).to receive(:first).and_return(nil)
-    
+    allow(mock_tasks_dataset).to receive_messages(where: mock_tasks_dataset, first: nil)
+
     allow(mock_task_manager).to receive(:instance_variable_get).with(:@logger).and_return(mock_logger)
     allow(mock_task_manager).to receive(:instance_variable_get).with(:@redis).and_return(mock_redis)
     allow(mock_task_manager).to receive(:instance_variable_get).with(:@db).and_return(mock_db)
