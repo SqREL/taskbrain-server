@@ -1,0 +1,221 @@
+version: '3.8'
+
+networks:
+  task_network:
+    driver: bridge
+
+services:
+  task_server:
+    build: 
+      context: .
+      target: production
+    container_name: task_intelligence_server
+    ports:
+      - "3000:3000"
+    environment:
+      - RACK_ENV=production
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://taskuser:${DB_PASSWORD:-securepassword}@postgres:5432/taskmanager
+      - TODOIST_CLIENT_ID=${TODOIST_CLIENT_ID}
+      - TODOIST_CLIENT_SECRET=${TODOIST_CLIENT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - LINEAR_API_KEY=${LINEAR_API_KEY}
+      - EVERNOTE_DEV_TOKEN=${EVERNOTE_DEV_TOKEN}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-$(openssl rand -hex 32)}
+      - CLAUDE_WEBHOOK_URL=${CLAUDE_WEBHOOK_URL}
+      - BASE_URL=${BASE_URL:-http://localhost:3000}
+      - USER_EMAIL=${USER_EMAIL}
+      - TRACKED_LINEAR_TEAMS=${TRACKED_LINEAR_TEAMS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - task_logs:/app/logs
+      - task_tmp:/app/tmp
+    networks:
+      - task_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  sidekiq:
+    build: 
+      context: .
+      target: production
+    container_name: task_sidekiq_worker
+    command: bundle exec sidekiq -C config/sidekiq.yml
+    environment:
+      - RACK_ENV=production
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://taskuser:${DB_PASSWORD:-securepassword}@postgres:5432/taskmanager
+      - TODOIST_CLIENT_ID=${TODOIST_CLIENT_ID}
+      - TODOIST_CLIENT_SECRET=${TODOIST_CLIENT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - LINEAR_API_KEY=${LINEAR_API_KEY}
+      - EVERNOTE_DEV_TOKEN=${EVERNOTE_DEV_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - task_logs:/app/logs
+    networks:
+      - task_network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: task_postgres
+    environment:
+      - POSTGRES_DB=taskmanager
+      - POSTGRES_USER=taskuser
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-securepassword}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./config/postgres.conf:/etc/postgresql/postgresql.conf:ro
+    networks:
+      - task_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskuser -d taskmanager"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=4MB
+
+  redis:
+    image: redis:7-alpine
+    container_name: task_redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+      - ./config/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    networks:
+      - task_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    command: redis-server /usr/local/etc/redis/redis.conf
+    sysctls:
+      - net.core.somaxconn=1024
+
+  # Reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: task_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./config/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+      - task_logs:/var/log/nginx
+    depends_on:
+      - task_server
+    networks:
+      - task_network
+    restart: unless-stopped
+    profiles:
+      - production
+
+  # Development tunneling
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: task_ngrok
+    restart: unless-stopped
+    command:
+      - "start"
+      - "--all"
+      - "--config"
+      - "/etc/ngrok.yml"
+    volumes:
+      - ./config/ngrok.yml:/etc/ngrok.yml:ro
+    ports:
+      - "4040:4040"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    networks:
+      - task_network
+    profiles:
+      - development
+    depends_on:
+      - task_server
+
+  # Monitoring
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: task_prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - task_network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: task_grafana
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin123}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - task_network
+    restart: unless-stopped
+    profiles:
+      - monitoring
+    depends_on:
+      - prometheus
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  task_logs:
+    driver: local
+  task_tmp:
+    driver: local
+  prometheus_data:
+    driver: local
+  grafana_data:
+    driver: local

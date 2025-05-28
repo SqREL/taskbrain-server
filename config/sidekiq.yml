@@ -1,0 +1,66 @@
+# Sidekiq configuration for background job processing
+
+:concurrency: 10
+:timeout: 30
+:verbose: false
+:queues:
+  - critical
+  - default
+  - low
+  - mailers
+
+:scheduler:
+  sync_todoist:
+    every: '5m'
+    class: SyncTodoistJob
+    queue: default
+    
+  update_intelligence:
+    every: '10m'
+    class: UpdateIntelligenceJob
+    queue: default
+    
+  cleanup_old_events:
+    cron: '0 2 * * *'  # Daily at 2 AM
+    class: CleanupEventsJob
+    queue: low
+    
+  productivity_analysis:
+    cron: '0 6 * * *'  # Daily at 6 AM
+    class: ProductivityAnalysisJob
+    queue: default
+    
+  sync_calendar:
+    every: '15m'
+    class: SyncCalendarJob
+    queue: default
+    
+  backup_patterns:
+    cron: '0 1 * * 0'  # Weekly on Sunday at 1 AM
+    class: BackupPatternsJob
+    queue: low
+
+# Production settings
+production:
+  :concurrency: 20
+  :timeout: 60
+  :queues:
+    - critical
+    - default
+    - low
+    - mailers
+    
+# Development settings
+development:
+  :concurrency: 5
+  :timeout: 30
+  :verbose: true
+  :queues:
+    - critical
+    - default
+    - low
+
+# Test settings
+test:
+  :concurrency: 2
+  :timeout: 10

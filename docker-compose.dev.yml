@@ -1,0 +1,186 @@
+version: '3.8'
+
+networks:
+  task_network:
+    driver: bridge
+
+services:
+  task_server:
+    build: 
+      context: .
+      target: builder
+    container_name: task_dev_server
+    ports:
+      - "3000:3000"
+    environment:
+      - RACK_ENV=development
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://taskuser:devpassword@postgres:5432/taskmanager_dev
+      - TODOIST_CLIENT_ID=${TODOIST_CLIENT_ID}
+      - TODOIST_CLIENT_SECRET=${TODOIST_CLIENT_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - LINEAR_API_KEY=${LINEAR_API_KEY}
+      - EVERNOTE_DEV_TOKEN=${EVERNOTE_DEV_TOKEN}
+      - WEBHOOK_SECRET=${WEBHOOK_SECRET:-dev_webhook_secret}
+      - CLAUDE_WEBHOOK_URL=${CLAUDE_WEBHOOK_URL}
+      - BASE_URL=${BASE_URL:-http://localhost:3000}
+      - USER_EMAIL=${USER_EMAIL}
+      - TRACKED_LINEAR_TEAMS=${TRACKED_LINEAR_TEAMS}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - bundle_cache:/usr/local/bundle
+      - node_modules:/app/node_modules
+      - dev_logs:/app/logs
+    networks:
+      - task_network
+    restart: unless-stopped
+    command: bundle exec rerun -d app,lib -p "**/*.rb" -- ruby server.rb
+    stdin_open: true
+    tty: true
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: task_dev_postgres
+    environment:
+      - POSTGRES_DB=taskmanager_dev
+      - POSTGRES_USER=taskuser
+      - POSTGRES_PASSWORD=devpassword
+      - POSTGRES_INITDB_ARGS=--encoding=UTF-8
+    ports:
+      - "5433:5432"  # Different port to avoid conflicts
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - task_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskuser -d taskmanager_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: task_dev_redis
+    ports:
+      - "6380:6379"  # Different port to avoid conflicts
+    volumes:
+      - redis_dev_data:/data
+    networks:
+      - task_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 256mb
+
+  # Sidekiq for background jobs
+  sidekiq:
+    build: 
+      context: .
+      target: builder
+    container_name: task_dev_sidekiq
+    environment:
+      - RACK_ENV=development
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://taskuser:devpassword@postgres:5432/taskmanager_dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - .:/app
+      - bundle_cache:/usr/local/bundle
+      - dev_logs:/app/logs
+    networks:
+      - task_network
+    restart: unless-stopped
+    command: bundle exec sidekiq -e development -v
+
+  # ngrok for webhook development
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: task_dev_ngrok
+    restart: unless-stopped
+    command:
+      - "start"
+      - "--all"
+      - "--config"
+      - "/etc/ngrok.yml"
+    volumes:
+      - ./config/ngrok.yml:/etc/ngrok.yml:ro
+    ports:
+      - "4040:4040"
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    networks:
+      - task_network
+    depends_on:
+      - task_server
+
+  # Mailcatcher for email testing
+  mailcatcher:
+    image: dockage/mailcatcher:latest
+    container_name: task_dev_mailcatcher
+    ports:
+      - "1080:1080"  # Web interface
+      - "1025:1025"  # SMTP
+    networks:
+      - task_network
+    restart: unless-stopped
+
+  # Redis Commander for Redis debugging
+  redis_commander:
+    image: rediscommander/redis-commander:latest
+    container_name: task_dev_redis_commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8081:8081"
+    networks:
+      - task_network
+    restart: unless-stopped
+    depends_on:
+      - redis
+
+  # pgAdmin for database management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: task_dev_pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=admin@taskmanager.local
+      - PGADMIN_DEFAULT_PASSWORD=admin123
+      - PGADMIN_CONFIG_SERVER_MODE=False
+    ports:
+      - "8080:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - task_network
+    restart: unless-stopped
+    depends_on:
+      - postgres
+
+volumes:
+  postgres_dev_data:
+    driver: local
+  redis_dev_data:
+    driver: local
+  bundle_cache:
+    driver: local
+  node_modules:
+    driver: local
+  dev_logs:
+    driver: local
+  pgadmin_data:
+    driver: local
